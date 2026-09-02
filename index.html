@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Word Cloud Game</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        header {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        #controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #03dac6;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #018786;
+        }
+        
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        #timer {
+            font-size: 32px;
+            font-weight: bold;
+            color: #cf6679;
+            margin: 15px 0;
+        }
+
+        #status {
+            font-size: 14px;
+            color: #bbb;
+            height: 20px;
+        }
+
+        #word-cloud {
+            flex-grow: 1;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-content: center;
+            width: 80%;
+            max-width: 800px;
+            padding: 20px;
+            gap: 15px;
+        }
+
+        .word {
+            display: inline-block;
+            transition: all 0.5s ease;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .word.deleted {
+            opacity: 0;
+            transform: scale(0) !important;
+            pointer-events: none;
+        }
+        
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            display: none;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 40px;
+            border-radius: 15px;
+            border: 2px solid #03dac6;
+            z-index: 10;
+        }
+        
+        /* Volume control styling */
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Background Music Audio Element -->
+    <!-- Replace 'your-music-file.mp3' with the path to your actual audio file if you have one -->
+    <!-- We set loop so it keeps playing during the game -->
+    <audio id="bg-music" loop>
+        <!-- Using a placeholder royalty-free synthwave track URL for demonstration -->
+        <source src="https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+
+    <header>
+        <h1>Voice Word Cloud</h1>
+        <p>Say the words aloud to clear the cloud before time runs out!</p>
+        <div id="controls">
+            <button id="start-btn">Start Game</button>
+        </div>
+        <div class="volume-control">
+            <label for="music-volume">Music Volume:</label>
+            <input type="range" id="music-volume" min="0" max="1" step="0.1" value="0.5">
+        </div>
+        <div id="timer">60s</div>
+        <div id="status">Microphone inactive. Click Start Game.</div>
+    </header>
+
+    <div id="word-cloud"></div>
+
+    <div id="game-over">
+        <span id="final-message"></span><br>
+        <button onclick="location.reload()" style="margin-top: 20px;">Play Again</button>
+    </div>
+
+    <script>
+        const words = [
+            "fright", "warning", "disaster", "prepared", "react", 
+            "survival", "kit", "emergency", "essential", "preserve", 
+            "document", "optional", "spare", "update", "grab"
+        ];
+        
+        let activeWords = [...words];
+        let timeRemaining = 60;
+        let timerInterval = null;
+        let recognition = null;
+        let gameActive = false;
+
+        const wordCloudContainer = document.getElementById('word-cloud');
+        const startBtn = document.getElementById('start-btn');
+        const timerDisplay = document.getElementById('timer');
+        const statusDisplay = document.getElementById('status');
+        const gameOverScreen = document.getElementById('game-over');
+        const finalMessage = document.getElementById('final-message');
+        const bgMusic = document.getElementById('bg-music');
+        const volumeControl = document.getElementById('music-volume');
+
+        // Color palette for the word cloud
+        const colors = ['#bb86fc', '#03dac6', '#cf6679', '#ffb74d', '#4dd0e1', '#81c784', '#ffd54f'];
+
+        // Handle Music Volume
+        bgMusic.volume = volumeControl.value;
+        volumeControl.addEventListener('input', (e) => {
+            bgMusic.volume = e.target.value;
+        });
+
+        // Initialize Word Cloud
+        function renderWordCloud() {
+            wordCloudContainer.innerHTML = '';
+            words.forEach(word => {
+                const span = document.createElement('span');
+                span.innerText = word;
+                span.className = 'word';
+                span.id = `word-${word}`;
+                
+                // Randomize appearance
+                const fontSize = Math.floor(Math.random() * (48 - 24 + 1)) + 24; // 24px to 48px
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                const rotation = Math.floor(Math.random() * 30) - 15; // -15deg to 15deg
+                
+                span.style.fontSize = `${fontSize}px`;
+                span.style.color = color;
+                span.style.transform = `rotate(${rotation}deg)`;
+                
+                wordCloudContainer.appendChild(span);
+            });
+        }
+
+        // Setup Speech Recognition
+        function setupSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                statusDisplay.innerText = "Speech Recognition API not supported in this browser. Please use Chrome.";
+                startBtn.disabled = true;
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                statusDisplay.innerText = "Listening... Start speaking!";
+                statusDisplay.style.color = "#03dac6";
+            };
+
+            recognition.onresult = (event) => {
+                if (!gameActive) return;
+
+                // Get the latest recognized phrase
+                const currentResultIndex = event.resultIndex;
+                const transcript = event.results[currentResultIndex][0].transcript.toLowerCase().trim();
+                
+                statusDisplay.innerText = `Heard: "${transcript}"`;
+                
+                // Split transcript into words and check against active words
+                const spokenWords = transcript.split(/\s+/);
+                
+                spokenWords.forEach(spokenWord => {
+                    // Remove punctuation
+                    const cleanWord = spokenWord.replace(/[.,!?]/g, ''); 
+                    
+                    if (activeWords.includes(cleanWord)) {
+                        // Delete word
+                        activeWords = activeWords.filter(w => w !== cleanWord);
+                        const wordElement = document.getElementById(`word-${cleanWord}`);
+                        if (wordElement) {
+                            wordElement.classList.add('deleted');
+                        }
+                    }
+                });
+
+                checkWinCondition();
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error", event.error);
+                if(event.error === 'not-allowed') {
+                    // Updated error handling so it doesn't just say "Time's Up"
+                    endGame(false, "Microphone Access Denied! Please allow mic access or use a local server.");
+                } else {
+                    statusDisplay.innerText = `Error: ${event.error}`;
+                }
+            };
+
+            recognition.onend = () => {
+                // Auto-restart if game is still active (prevents mic from timing out)
+                if (gameActive) {
+                    recognition.start();
+                }
+            };
+        }
+
+        // Game Logic
+        function startGame() {
+            if (!recognition) setupSpeechRecognition();
+            if (!recognition) return;
+
+            // Start background music
+            bgMusic.play().catch(error => console.log("Music play failed due to browser policies:", error));
+
+            startBtn.disabled = true;
+            activeWords = [...words];
+            timeRemaining = 60;
+            gameActive = true;
+            
+            // Reset UI
+            document.querySelectorAll('.word').forEach(el => el.classList.remove('deleted'));
+            timerDisplay.innerText = `${timeRemaining}s`;
+            timerDisplay.style.color = "#cf6679";
+            gameOverScreen.style.display = "none";
+
+            recognition.start();
+
+            // Start Timer
+            timerInterval = setInterval(() => {
+                timeRemaining--;
+                timerDisplay.innerText = `${timeRemaining}s`;
+
+                if (timeRemaining <= 10) {
+                    timerDisplay.style.color = "#ff0000"; // Urgency color
+                }
+
+                if (timeRemaining <= 0) {
+                    endGame(false); // Default Time's up
+                }
+            }, 1000);
+        }
+
+        function checkWinCondition() {
+            if (activeWords.length === 0) {
+                endGame(true);
+            }
+        }
+
+        // Updated endGame function to accept custom error messages
+        function endGame(isWin, errorMessage = null) {
+            gameActive = false;
+            clearInterval(timerInterval);
+            
+            // Pause music
+            bgMusic.pause();
+            bgMusic.currentTime = 0; // Reset music to start
+            
+            if (recognition) {
+                recognition.stop();
+            }
+
+            statusDisplay.innerText = "Game Over";
+            statusDisplay.style.color = "#bbb";
+            
+            gameOverScreen.style.display = "block";
+            
+            if (errorMessage) {
+                finalMessage.innerText = `❌ ${errorMessage} ❌`;
+                finalMessage.style.color = "#ffb74d"; // Orange for warning
+                finalMessage.style.fontSize = "32px";
+            } else if (isWin) {
+                finalMessage.innerText = "🎉 You Won! All words cleared! 🎉";
+                finalMessage.style.color = "#03dac6";
+                finalMessage.style.fontSize = "48px";
+            } else {
+                finalMessage.innerText = "⏳ Time's Up! ⏳";
+                finalMessage.style.color = "#cf6679";
+                finalMessage.style.fontSize = "48px";
+            }
+        }
+
+        // Initialize
+        renderWordCloud();
+        setupSpeechRecognition();
+
+        startBtn.addEventListener('click', startGame);
+    </script>
+</body>
+</html>
